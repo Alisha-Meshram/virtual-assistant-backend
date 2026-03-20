@@ -54,8 +54,8 @@ export const askToGemini = async (req, res) => {
     console.log("Assistant API called with command:", command);
     const user = await User.findById(req.userId);
 
-    if (!user.history) user.history = [];
-    user.history.push(command)
+    if (!user.assistantHistory) user.assistantHistory = [];
+    user.assistantHistory.push(command)
     await user.save()
 
     const userName = user.name;
@@ -120,6 +120,7 @@ export const askToGemini = async (req, res) => {
           type,
           userInput: gemResult.userInput,
           response: gemResult.response,
+          history: user.assistantHistory 
         });
     }
   } catch (error) {

@@ -16,7 +16,7 @@ export const Register = async (req, res) => {
     const hashPassword = await bcrypt.hash(password, 10);
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Password should be atleast 6" });
+      return res.status(400).json({ message: "Password should be atleast 6 digit" });
     }
 
     const user = await User.create({ name, email, password: hashPassword });

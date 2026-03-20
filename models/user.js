@@ -8,7 +8,7 @@ email:{type:String,required:true,unique:true},
 password:{type:String,required:true},
 assistantName:{type:String,},
 assistantImage:{type:String},
-assistantHistory:{type:String}
+assistantHistory:[{type:String}]
 },{timestamps:true})
 
 export const User=mongoose.model("User",userSchema)
