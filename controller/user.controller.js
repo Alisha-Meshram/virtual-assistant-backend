@@ -2,127 +2,188 @@ import { User } from "../models/user.js";
 import { uploadCloudinary } from "../config/cloudinary.js";
 import { geminiResponse } from "../gemini.js";
 import moment from "moment";
-import { json, response } from "express";
 
+// 🔹 Common response helper (IMPORTANT)
+const sendResponse = (res, type, userInput, response, status = 200) => {
+  return res.status(status).json({
+    type,
+    userInput,
+    response,
+  });
+};
+
+// 🔹 GET CURRENT USER
 export const getCurrentUser = async (req, res) => {
   try {
-    const userId = req.userId;
-
-    const user = await User.findById(userId).select("-password");
+    const user = await User.findById(req.userId).select("-password");
 
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      return sendResponse(res, "general", null, "User not found", 404);
     }
 
     res.status(200).json(user);
   } catch (error) {
-    res.status(500).json({ message: "Current user error" });
+    return sendResponse(res, "general", null, "Current user error", 500);
   }
 };
 
+// 🔹 UPDATE USER
 export const updateUser = async (req, res) => {
   try {
-    console.log(req.body, "body");
-    console.log(req.file, "file");
-
     const { assistantName, imageUrl } = req.body;
 
-    let assistantImage = "";
+    let assistantImage = imageUrl || "";
+
+    // Upload image if file exists
     if (req.file) {
-      assistantImage = await uploadCloudinary(req.file.path);
-    } else {
-      assistantImage = imageUrl;
+      try {
+        assistantImage = await uploadCloudinary(req.file.path);
+      } catch (err) {
+        console.log("Cloudinary upload failed:", err.message);
+      }
     }
 
     const user = await User.findByIdAndUpdate(
       req.userId,
-      { assistantImage, assistantName },
+      { assistantName, assistantImage },
       { new: true }
     ).select("-password");
-    res.status(200).json(user);
+
+    if (!user) {
+      return sendResponse(res, "general", null, "User not found", 404);
+    }
+
+    return res.status(200).json(user);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return sendResponse(res, "general", null, error.message, 500);
   }
 };
 
+// 🔹 ASK TO GEMINI (MAIN API)
 export const askToGemini = async (req, res) => {
-
   try {
-    const { command} = req.body;
-    
-   
-    console.log("Assistant API called with command:", command);
+    const { command } = req.body;
+
+    if (!command) {
+      return sendResponse(res, "general", null, "Command is required", 400);
+    }
+
     const user = await User.findById(req.userId);
 
-    if (!user.history) user.history = [];
-    user.history.push(command)
-    await user.save()
+    if (!user) {
+      return sendResponse(res, "general", command, "User not found", 404);
+    }
 
-    const userName = user.name;
+    // 🔥 Manage history (limit size)
+    user.history = user.history || [];
+    user.history.push(command);
 
-    const assistantName = user.assistantName;
+    if (user.history.length > 20) {
+      user.history.shift(); // keep last 20
+    }
 
-    const result = await geminiResponse(command, assistantName, userName);
+    await user.save();
+
+    // 🔥 Call Gemini
+    const result = await geminiResponse(
+      command,
+      user.assistantName,
+      user.name
+    );
 
     if (!result) {
-      return res.json({type:"general",userInput:command,
-        response: "Sorry, I could not connect to Gemini."
-      });
-    }
-    
-    console.log("Gemini Raw Response:", result);
-    const jsonMatch = result.match(/{[\s\S]*}/);
-    if (!jsonMatch) {
-      return res.status(400).json({ message: "sorry i can't understand" });
+      return sendResponse(
+        res,
+        "general",
+        command,
+        "Sorry, I could not connect to Gemini."
+      );
     }
 
-    const gemResult = JSON.parse(jsonMatch[0]);
+    console.log("Gemini Raw Response:", result);
+
+    // 🔥 Safe JSON parsing
+    let gemResult;
+
+    try {
+      const jsonMatch = result.match(/{[\s\S]*}/);
+
+      if (!jsonMatch) throw new Error("Invalid JSON");
+
+      gemResult = JSON.parse(jsonMatch[0]);
+    } catch (err) {
+      return sendResponse(res, "general", command, result);
+    }
+
     const type = gemResult.type;
 
+    // 🔥 Handle commands
     switch (type) {
       case "get-date":
-        return res.json({
+        return sendResponse(
+          res,
           type,
-          userInput: gemResult.userInput,
-          response: `Current date is ${moment().format("YYYY-DD-MM")}`,
-        });
-    
+          command,
+          `Current date is ${moment().format("YYYY-MM-DD")}`
+        );
+
       case "get-time":
-        return res.json({
+        return sendResponse(
+          res,
           type,
-          userInput: gemResult.userInput,
-          response: `Current time is ${moment().format("hh:mm A")}`,
-        });
-    
+          command,
+          `Current time is ${moment().format("hh:mm A")}`
+        );
+
       case "get-day":
-        return res.json({
+        return sendResponse(
+          res,
           type,
-          userInput: gemResult.userInput,
-          response: `Today is ${moment().format("dddd")}`,
-        });
-    
+          command,
+          `Today is ${moment().format("dddd")}`
+        );
+
       case "get-month":
-        return res.json({
+        return sendResponse(
+          res,
           type,
-          userInput: gemResult.userInput,
-          response: `Current month is ${moment().format("MMMM")}`,
-        });
-    
+          command,
+          `Current month is ${moment().format("MMMM")}`
+        );
+
       case "google-search":
       case "youtube-search":
       case "youtube-play":
       case "calculator-open":
       case "instagram-open":
       case "facebook-open":
-      case "general":
       case "weather-show":
-        return res.json({
+      case "general":
+        return sendResponse(
+          res,
           type,
-          userInput: gemResult.userInput,
-          response: gemResult.response,
-        });
+          command,
+          gemResult.response || "No response"
+        );
+
+      // 🔥 Default fallback (VERY IMPORTANT)
+      default:
+        return sendResponse(
+          res,
+          "general",
+          command,
+          gemResult.response || "I didn't understand that"
+        );
     }
   } catch (error) {
-    res.status(500).json({ response: "Ask assistant error" });
+    console.error("Ask Gemini Error:", error);
+
+    return sendResponse(
+      res,
+      "general",
+      null,
+      "Something went wrong",
+      500
+    );
   }
 };
