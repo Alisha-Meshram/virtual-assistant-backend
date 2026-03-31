@@ -10,7 +10,14 @@ import { geminiResponse } from './gemini.js';
 dotenv.config()
 
 const app=express()
-app.use(cors())
+app.use(cors({
+    origin: [
+      "http://localhost:5173",
+      "https://virtual-assistant-phi-weld.vercel.app"
+    ],
+    credentials: true
+  }));
+  app.options("*", cors());
 
 
 app.use(express.json())
