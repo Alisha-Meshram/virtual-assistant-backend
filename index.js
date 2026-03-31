@@ -10,7 +10,23 @@ import { geminiResponse } from './gemini.js';
 dotenv.config()
 
 const app=express()
-app.use(cors({origin:'http://localhost:5173',credentials:true}))
+// app.use(cors({origin:'http://localhost:5174',credentials:true}))
+
+const allowedOrigins = [
+    "http://localhost:5173",
+    "https://virtual-assistant-phi-weld.vercel.app"
+  ];
+  
+  app.use(cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true
+  }));
 app.use(express.json())
 app.use(cookieParser())
 app.use('/api/v1',authRouter)
@@ -19,7 +35,7 @@ app.use('/api/user',userRouter)
 
 
 
-const port=8000 || 5000;
+const port=process.env.PORT || 5000;
 app.listen(port,()=>{
     connectDatabase()
 console.log(`Server is run ${port}`)
